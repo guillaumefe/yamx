@@ -597,238 +597,283 @@ settings:
     </footer>
   </div>
 
-  <script>
-    // Helpers de typage
-    function isPlainObject(value) {
-      return Object.prototype.toString.call(value) === "[object Object]";
-    }
 
-    function isArrayOfObjects(value) {
-      return Array.isArray(value) && value.length > 0 && value.every(function (v) {
+<script>
+  // Helpers de typage
+  function isPlainObject(value) {
+    return Object.prototype.toString.call(value) === "[object Object]";
+  }
+
+  function isArrayOfObjects(value) {
+    return Array.isArray(value) &&
+      value.length > 0 &&
+      value.every(function (v) {
         return isPlainObject(v);
       });
-    }
+  }
 
-    // Aplatit un objet/array en paires { path, value }
-    function flattenObject(root, rootPath) {
-      var rows = [];
+  // Aplatit un objet/array en lignes { path, value } pour le mode "chemin / valeur"
+  function flattenObject(root, rootPath) {
+    var rows = [];
 
-      function walk(value, currentPath) {
-        if (isPlainObject(value)) {
-          Object.keys(value).forEach(function (key) {
-            var nextPath = currentPath ? currentPath + "." + key : key;
-            walk(value[key], nextPath);
-          });
-        } else if (Array.isArray(value)) {
-          value.forEach(function (item, index) {
-            var nextPath = currentPath + "[" + index + "]";
-            walk(item, nextPath);
-          });
-        } else {
-          rows.push({ path: currentPath || rootPath || "(racine)", value: value });
-        }
-      }
-
-      walk(root, rootPath || "");
-      return rows;
-    }
-
-    // Construit une seule feuille à partir du YAML
-    function buildSingleSheet(data) {
-      // 1) YAML = [ { ... }, { ... } ]
-      if (isArrayOfObjects(data)) {
-        return XLSX.utils.json_to_sheet(data);
-      }
-
-      // 2) YAML = { section1: [ { ... } ], section2: [ { ... } ], ... }
-      if (isPlainObject(data)) {
-        var merged = [];
-        Object.keys(data).forEach(function (key) {
-          var val = data[key];
-          if (isArrayOfObjects(val)) {
-            val.forEach(function (row) {
-              var copy = Object.assign({}, row);
-              copy.__section = key;
-              merged.push(copy);
-            });
-          }
+    function walk(value, currentPath) {
+      if (isPlainObject(value)) {
+        Object.keys(value).forEach(function (key) {
+          var nextPath = currentPath ? currentPath + "." + key : key;
+          walk(value[key], nextPath);
         });
-
-        if (merged.length > 0) {
-          // colonne __section en tête
-          merged = merged.map(function (row) {
-            var ordered = {};
-            ordered.__section = row.__section;
-            Object.keys(row).forEach(function (k) {
-              if (k !== "__section") ordered[k] = row[k];
-            });
-            return ordered;
-          });
-          return XLSX.utils.json_to_sheet(merged);
-        }
-      }
-
-      // 3) Fallback : aplatir tout en chemin / valeur
-      var flat = flattenObject(data);
-      var aoa = [["Chemin", "Valeur"]];
-      flat.forEach(function (row) {
-        aoa.push([row.path, row.value != null ? String(row.value) : ""]);
-      });
-      return XLSX.utils.aoa_to_sheet(aoa);
-    }
-
-    // Ajoute plusieurs feuilles à partir du YAML
-    function buildMultiSheets(data, workbook) {
-      // Si c'est déjà un tableau d'objets : une seule feuille
-      if (isArrayOfObjects(data)) {
-        var ws = XLSX.utils.json_to_sheet(data);
-        XLSX.utils.book_append_sheet(workbook, ws, "Feuille1");
-        return;
-      }
-
-      // Si ce n'est pas un objet, fallback sur une seule feuille aplatie
-      if (!isPlainObject(data)) {
-        var wsSingle = buildSingleSheet(data);
-        XLSX.utils.book_append_sheet(workbook, wsSingle, "Feuille1");
-        return;
-      }
-
-      var entries = Object.entries(data);
-      if (entries.length === 0) {
-        var emptyWs = XLSX.utils.aoa_to_sheet([["(vide)"]]);
-        XLSX.utils.book_append_sheet(workbook, emptyWs, "Feuille1");
-        return;
-      }
-
-      entries.forEach(function (pair, index) {
-        var key = pair[0];
-        var val = pair[1];
-        var ws;
-
-        if (isArrayOfObjects(val)) {
-          // Cas idéal : tableau d’objets → vraie table
-          ws = XLSX.utils.json_to_sheet(val);
-        } else if (Array.isArray(val)) {
-          // Tableau simple ou mixte → colonne Index + Valeur
-          var aoaList = [["Index", key]];
-          val.forEach(function (item, i) {
-            var cell;
-            if (isPlainObject(item) || Array.isArray(item)) {
-              cell = JSON.stringify(item);
-            } else {
-              cell = item != null ? String(item) : "";
-            }
-            aoaList.push([i, cell]);
-          });
-          ws = XLSX.utils.aoa_to_sheet(aoaList);
-        } else if (isPlainObject(val)) {
-          // Objet imbriqué → aplatir chemin / valeur
-          var flat = flattenObject(val, key);
-          var aoaObj = [["Chemin", "Valeur"]];
-          flat.forEach(function (row) {
-            aoaObj.push([row.path, row.value != null ? String(row.value) : ""]);
-          });
-          ws = XLSX.utils.aoa_to_sheet(aoaObj);
-        } else {
-          // Scalaire → une petite feuille 2 lignes
-          ws = XLSX.utils.aoa_to_sheet([[key], [val != null ? String(val) : ""]]);
-        }
-
-        var sheetName = String(key).slice(0, 31) || "Feuille" + (index + 1);
-        // Nettoyage des caractères interdits dans les noms d’onglets
-        sheetName = sheetName.replace(/[:\\/?*\[\]]/g, "_");
-
-        XLSX.utils.book_append_sheet(workbook, ws, sheetName);
-      });
-    }
-
-    // Gestion de l’UI
-    var yamlInput = document.getElementById("yaml-input");
-    var statusEl = document.getElementById("status");
-    var filenameInput = document.getElementById("filename");
-    var generateBtn = document.getElementById("generate-btn");
-
-    // Pilles radio visuelles
-    document.querySelectorAll(".radio-pill").forEach(function (pill) {
-      pill.addEventListener("click", function () {
-        document.querySelectorAll(".radio-pill").forEach(function (p) {
-          p.dataset.active = "false";
+      } else if (Array.isArray(value)) {
+        value.forEach(function (item, index) {
+          var nextPath = currentPath + "[" + index + "]";
+          walk(item, nextPath);
         });
-        pill.dataset.active = "true";
-        var input = pill.querySelector("input[type=radio]");
-        if (input) input.checked = true;
-      });
-    });
-
-    function setStatus(text, type) {
-      statusEl.textContent = "";
-      statusEl.className = "status";
-      if (!text) return;
-
-      var dot = document.createElement("span");
-      dot.className = type === "error" ? "dot-error" : "dot-ok";
-
-      var strong = document.createElement("strong");
-      strong.textContent = text;
-
-      statusEl.appendChild(dot);
-      statusEl.appendChild(strong);
-
-      if (type === "error") {
-        statusEl.classList.add("status-error");
       } else {
-        statusEl.classList.add("status-ok");
+        rows.push({ path: currentPath || rootPath || "(racine)", value: value });
       }
     }
 
-    generateBtn.addEventListener("click", function () {
-      var yamlText = (yamlInput.value || "").trim();
-      if (!yamlText) {
-        setStatus("Colle du YAML avant d’exporter.", "error");
-        return;
+    walk(root, rootPath || "");
+    return rows;
+  }
+
+  // Aplatit un objet/array en colonnes (clé.imbriquée → valeur)
+  // pour faire apparaître les infos profondes comme VRAIES colonnes dans Excel.
+  function flattenToColumns(value, prefix) {
+    var out = {};
+
+    function step(v, path) {
+      if (isPlainObject(v)) {
+        Object.keys(v).forEach(function (k) {
+          var nextPath = path ? path + "." + k : k;
+          step(v[k], nextPath);
+        });
+      } else if (Array.isArray(v)) {
+        v.forEach(function (item, idx) {
+          var nextPath = path ? path + "[" + idx + "]" : "[" + idx + "]";
+          step(item, nextPath);
+        });
+      } else {
+        var col = path || prefix || "(valeur)";
+        out[col] = v;
       }
+    }
 
-      var data;
-      try {
-        data = jsyaml.load(yamlText);
-      } catch (err) {
-        setStatus("Erreur YAML : " + err.message, "error");
-        return;
-      }
+    step(value, prefix || "");
+    return out;
+  }
 
-      var modeInput = document.querySelector("input[name='mode']:checked");
-      var mode = modeInput ? modeInput.value : "single";
+  // Construit une seule feuille à partir du YAML
+  function buildSingleSheet(data) {
+    // 1) YAML = [ { ... }, { ... } ]
+    //    Chaque objet est aplati en colonnes (clé imbriquée → valeur)
+    if (isArrayOfObjects(data)) {
+      var flatRows = data.map(function (row) {
+        return flattenToColumns(row, "");
+      });
+      return XLSX.utils.json_to_sheet(flatRows);
+    }
 
-      var wb = XLSX.utils.book_new();
-
-      try {
-        if (mode === "multi") {
-          buildMultiSheets(data, wb);
-        } else {
-          var ws = buildSingleSheet(data);
-          XLSX.utils.book_append_sheet(wb, ws, "Données");
+    // 2) YAML = { section1: [ { ... } ], section2: [ { ... } ], ... }
+    //    On merge tout dans une seule feuille, avec une colonne __section
+    //    ET on aplatit chaque ligne pour exposer les infos profondes.
+    if (isPlainObject(data)) {
+      var merged = [];
+      Object.keys(data).forEach(function (key) {
+        var val = data[key];
+        if (isArrayOfObjects(val)) {
+          val.forEach(function (row) {
+            var flat = flattenToColumns(row, "");
+            flat.__section = key;
+            merged.push(flat);
+          });
         }
-      } catch (err) {
-        console.error(err);
-        setStatus("Erreur pendant la génération des feuilles : " + err.message, "error");
-        return;
-      }
+      });
 
-      var filename = (filenameInput.value || "").trim();
-      if (!filename) {
-        filename = "export-yaml.xlsx";
-      } else if (!/\.xlsx$/i.test(filename)) {
-        filename += ".xlsx";
+      if (merged.length > 0) {
+        // On place __section en première colonne
+        merged = merged.map(function (row) {
+          var ordered = { __section: row.__section };
+          Object.keys(row).forEach(function (k) {
+            if (k !== "__section") ordered[k] = row[k];
+          });
+          return ordered;
+        });
+        return XLSX.utils.json_to_sheet(merged);
       }
+    }
 
-      try {
-        XLSX.writeFile(wb, filename);
-        setStatus("Fichier généré : " + filename, "ok");
-      } catch (err) {
-        console.error(err);
-        setStatus("Impossible de déclencher le téléchargement : " + err.message, "error");
-      }
+    // 3) Fallback : aplatir tout en chemin / valeur
+    var flat = flattenObject(data);
+    var aoa = [["Chemin", "Valeur"]];
+    flat.forEach(function (row) {
+      aoa.push([row.path, row.value != null ? String(row.value) : ""]);
     });
-  </script>
+    return XLSX.utils.aoa_to_sheet(aoa);
+  }
+
+  // Ajoute plusieurs feuilles à partir du YAML
+  function buildMultiSheets(data, workbook) {
+    // Si c'est déjà un tableau d'objets : une seule feuille, lignes aplaties
+    if (isArrayOfObjects(data)) {
+      var flatRows = data.map(function (row) {
+        return flattenToColumns(row, "");
+      });
+      var ws = XLSX.utils.json_to_sheet(flatRows);
+      XLSX.utils.book_append_sheet(workbook, ws, "Feuille1");
+      return;
+    }
+
+    // Si ce n'est pas un objet, fallback sur une seule feuille aplatie
+    if (!isPlainObject(data)) {
+      var wsSingle = buildSingleSheet(data);
+      XLSX.utils.book_append_sheet(workbook, wsSingle, "Feuille1");
+      return;
+    }
+
+    var entries = Object.entries(data);
+    if (entries.length === 0) {
+      var emptyWs = XLSX.utils.aoa_to_sheet([["(vide)"]]);
+      XLSX.utils.book_append_sheet(workbook, emptyWs, "Feuille1");
+      return;
+    }
+
+    entries.forEach(function (pair, index) {
+      var key = pair[0];
+      var val = pair[1];
+      var ws;
+
+      if (isArrayOfObjects(val)) {
+        // Cas idéal : tableau d’objets → vraie table
+        // avec colonnes représentant aussi les infos imbriquées
+        var flatRows = val.map(function (row) {
+          return flattenToColumns(row, "");
+        });
+        ws = XLSX.utils.json_to_sheet(flatRows);
+      } else if (Array.isArray(val)) {
+        // Tableau simple ou mixte → colonne Index + Valeur
+        // (si un élément est un objet, il sera stringifié, mais on n’écrase plus
+        // les cas typiques "tableau d’objets" grâce à isArrayOfObjects ci-dessus)
+        var aoaList = [["Index", key]];
+        val.forEach(function (item, i) {
+          var cell;
+          if (isPlainObject(item) || Array.isArray(item)) {
+            cell = JSON.stringify(item);
+          } else {
+            cell = item != null ? String(item) : "";
+          }
+          aoaList.push([i, cell]);
+        });
+        ws = XLSX.utils.aoa_to_sheet(aoaList);
+      } else if (isPlainObject(val)) {
+        // Objet imbriqué → aplatir chemin / valeur
+        var flat = flattenObject(val, key);
+        var aoaObj = [["Chemin", "Valeur"]];
+        flat.forEach(function (row) {
+          aoaObj.push([row.path, row.value != null ? String(row.value) : ""]);
+        });
+        ws = XLSX.utils.aoa_to_sheet(aoaObj);
+      } else {
+        // Scalaire → une petite feuille 2 lignes
+        ws = XLSX.utils.aoa_to_sheet([[key], [val != null ? String(val) : ""]]);
+      }
+
+      var sheetName = String(key).slice(0, 31) || "Feuille" + (index + 1);
+      // Nettoyage des caractères interdits dans les noms d’onglets
+      sheetName = sheetName.replace(/[:\\/?*\[\]]/g, "_");
+
+      XLSX.utils.book_append_sheet(workbook, ws, sheetName);
+    });
+  }
+
+  // Gestion de l’UI
+  var yamlInput = document.getElementById("yaml-input");
+  var statusEl = document.getElementById("status");
+  var filenameInput = document.getElementById("filename");
+  var generateBtn = document.getElementById("generate-btn");
+
+  // Pilles radio visuelles
+  document.querySelectorAll(".radio-pill").forEach(function (pill) {
+    pill.addEventListener("click", function () {
+      document.querySelectorAll(".radio-pill").forEach(function (p) {
+        p.dataset.active = "false";
+      });
+      pill.dataset.active = "true";
+      var input = pill.querySelector("input[type=radio]");
+      if (input) input.checked = true;
+    });
+  });
+
+  function setStatus(text, type) {
+    statusEl.textContent = "";
+    statusEl.className = "status";
+    if (!text) return;
+
+    var dot = document.createElement("span");
+    dot.className = type === "error" ? "dot-error" : "dot-ok";
+
+    var strong = document.createElement("strong");
+    strong.textContent = text;
+
+    statusEl.appendChild(dot);
+    statusEl.appendChild(strong);
+
+    if (type === "error") {
+      statusEl.classList.add("status-error");
+    } else {
+      statusEl.classList.add("status-ok");
+    }
+  }
+
+  generateBtn.addEventListener("click", function () {
+    var yamlText = (yamlInput.value || "").trim();
+    if (!yamlText) {
+      setStatus("Colle du YAML avant d’exporter.", "error");
+      return;
+    }
+
+    var data;
+    try {
+      data = jsyaml.load(yamlText);
+    } catch (err) {
+      setStatus("Erreur YAML : " + err.message, "error");
+      return;
+    }
+
+    var modeInput = document.querySelector("input[name='mode']:checked");
+    var mode = modeInput ? modeInput.value : "single";
+
+    var wb = XLSX.utils.book_new();
+
+    try {
+      if (mode === "multi") {
+        buildMultiSheets(data, wb);
+      } else {
+        var ws = buildSingleSheet(data);
+        XLSX.utils.book_append_sheet(wb, ws, "Données");
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus("Erreur pendant la génération des feuilles : " + err.message, "error");
+      return;
+    }
+
+    var filename = (filenameInput.value || "").trim();
+    if (!filename) {
+      filename = "export-yaml.xlsx";
+    } else if (!/\.xlsx$/i.test(filename)) {
+      filename += ".xlsx";
+    }
+
+    try {
+      XLSX.writeFile(wb, filename);
+      setStatus("Fichier généré : " + filename, "ok");
+    } catch (err) {
+      console.error(err);
+      setStatus("Impossible de déclencher le téléchargement : " + err.message, "error");
+    }
+  });
+</script>
+
+
 </body>
 </html>
