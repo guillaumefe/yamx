@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>YAML → Excel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- SheetJS (Excel) -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <!-- js-yaml (YAML parser) -->
+  <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.1/dist/js-yaml.min.js"></script>
+
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f172a;
+      --bg-soft: #111827;
+      --accent: #22c55e;
+      --accent-soft: rgba(34, 197, 94, 0.12);
+      --border: rgba(148, 163, 184, 0.35);
+      --text: #e5e7eb;
+      --text-soft: #9ca3af;
+      --danger: #f97373;
+      --radius-lg: 18px;
+      --radius-xl: 26px;
+      --shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.75);
+      --shadow-soft-light: 0 10px 30px rgba(15, 23, 42, 0.5);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+        "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #1e293b, #020617 60%);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 1100px;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.9));
+      border-radius: 28px;
+      padding: 26px 26px 22px;
+      box-shadow: var(--shadow-soft);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      backdrop-filter: blur(18px);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.9);
+    }
+
+    .title-block {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pill {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(52, 211, 153, 0.4);
+      background: radial-gradient(circle at top left, rgba(52, 211, 153, 0.16), transparent 70%);
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: #a7f3d0;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+
+    .subtitle {
+      margin: 0;
+      font-size: 13px;
+      color: var(--text-soft);
+    }
+
+    .header-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-end;
+      font-size: 11px;
+      color: var(--text-soft);
+    }
+
+    .badge-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .badge {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      background: rgba(15, 23, 42, 0.6);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
+    }
+
+    .content {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr);
+      gap: 18px;
+      align-items: flex-start;
+    }
+
+    @media (max-width: 900px) {
+      .content {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .header-actions {
+        align-items: flex-start;
+      }
+    }
+
+    .card {
+      background: radial-gradient(circle at top left, rgba(15, 118, 110, 0.09), rgba(15, 23, 42, 0.95));
+      border-radius: var(--radius-xl);
+      padding: 16px 16px 13px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft-light);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      gap: 12px;
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .card-title span.icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 999px;
+      background: radial-gradient(circle at 30% 0, #34d399, #22c55e 60%, #16a34a 100%);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: #022c22;
+      box-shadow: 0 0 10px rgba(34, 197, 94, 0.8);
+    }
+
+    .card-subtitle {
+      font-size: 11px;
+      color: var(--text-soft);
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 260px;
+      resize: vertical;
+      border-radius: 18px;
+      border: 1px solid rgba(51, 65, 85, 0.9);
+      padding: 10px 12px;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+        Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      color: var(--text);
+      background: radial-gradient(circle at top left, #020617, #020617);
+      outline: none;
+      line-height: 1.4;
+      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.9);
+    }
+
+    textarea:focus {
+      border-color: rgba(34, 197, 94, 0.7);
+      box-shadow:
+        0 0 0 1px rgba(34, 197, 94, 0.7),
+        0 0 0 6px rgba(16, 185, 129, 0.2);
+    }
+
+    .helper {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--text-soft);
+      gap: 10px;
+    }
+
+    .helper code {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+        Consolas, "Liberation Mono", "Courier New", monospace;
+      padding: 2px 5px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+      background: rgba(15, 23, 42, 0.9);
+      font-size: 11px;
+    }
+
+    .options {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 4px;
+    }
+
+    .options-group {
+      padding: 8px 10px;
+      border-radius: 16px;
+      border: 1px solid rgba(51, 65, 85, 0.9);
+      background: radial-gradient(circle at top left, rgba(15,23,42,1), rgba(15,23,42,0.97));
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .options-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-soft);
+      opacity: 0.9;
+    }
+
+    .mode-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+
+    .radio-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.6);
+      font-size: 12px;
+      cursor: pointer;
+      background: rgba(15, 23, 42, 0.96);
+      transition: border-color 0.16s ease, background 0.16s ease, transform 0.08s ease;
+    }
+
+    .radio-pill input {
+      appearance: none;
+      width: 11px;
+      height: 11px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.9);
+      display: inline-block;
+      position: relative;
+      margin: 0;
+    }
+
+    .radio-pill input:checked {
+      border-color: var(--accent);
+      box-shadow: 0 0 6px rgba(34, 197, 94, 0.9);
+    }
+
+    .radio-pill input:checked::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 5px;
+      height: 5px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .radio-pill span {
+      white-space: nowrap;
+    }
+
+    .radio-pill[data-active="true"] {
+      border-color: rgba(34, 197, 94, 0.9);
+      background: linear-gradient(135deg, rgba(22, 163, 74, 0.22), rgba(15, 23, 42, 0.98));
+      transform: translateY(-0.5px);
+    }
+
+    .filename-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      font-size: 12px;
+    }
+
+    .filename-row input {
+      flex: 1;
+      min-width: 0;
+      border-radius: 999px;
+      border: 1px solid rgba(51, 65, 85, 0.9);
+      padding: 6px 10px;
+      font-size: 12px;
+      background: rgba(15, 23, 42, 0.96);
+      color: var(--text);
+      outline: none;
+    }
+
+    .filename-row input:focus {
+      border-color: rgba(34, 197, 94, 0.7);
+      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+    }
+
+    .filename-row small {
+      color: var(--text-soft);
+      font-size: 11px;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    button.primary {
+      border: none;
+      border-radius: 999px;
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      background: radial-gradient(circle at 20% 0, #6ee7b7, #22c55e 40%, #15803d 100%);
+      color: #022c22;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow:
+        0 10px 25px rgba(16, 185, 129, 0.45),
+        0 0 0 1px rgba(34, 197, 94, 0.6);
+      transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.08s ease;
+    }
+
+    button.primary:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.05);
+      box-shadow:
+        0 14px 32px rgba(16, 185, 129, 0.52),
+        0 0 0 1px rgba(22, 163, 74, 1);
+    }
+
+    button.primary:active {
+      transform: translateY(0);
+      box-shadow:
+        0 5px 14px rgba(16, 185, 129, 0.4),
+        0 0 0 1px rgba(22, 163, 74, 1);
+    }
+
+    button.primary span.icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: rgba(6, 95, 70, 0.94);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: #bbf7d0;
+    }
+
+    .status {
+      font-size: 11px;
+      color: var(--text-soft);
+      min-height: 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status span.dot-ok {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
+      flex-shrink: 0;
+    }
+
+    .status span.dot-error {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #f97373;
+      box-shadow: 0 0 8px rgba(248, 113, 113, 0.9);
+      flex-shrink: 0;
+    }
+
+    .status strong {
+      font-weight: 500;
+    }
+
+    .status-error {
+      color: #fecaca;
+    }
+
+    .status-ok {
+      color: #a7f3d0;
+    }
+
+    .footer {
+      margin-top: 4px;
+      font-size: 10px;
+      color: var(--text-soft);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      opacity: 0.8;
+    }
+
+    .footer a {
+      color: #6ee7b7;
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="title-block">
+        <div class="title-row">
+          <h1>
+            YAML → Excel
+          </h1>
+          <span class="pill">
+            <span class="dot"></span>
+            100% client-side
+          </span>
+        </div>
+        <p class="subtitle">
+          Colle ton YAML, choisis le mode (un onglet ou plusieurs onglets) et télécharge un
+          <strong>.xlsx</strong> prêt pour Excel / LibreOffice / Google Sheets.
+        </p>
+      </div>
+      <div class="header-actions">
+        <div class="badge-row">
+          <div class="badge">js-yaml</div>
+          <div class="badge">SheetJS XLSX</div>
+          <div class="badge">Aucun serveur</div>
+        </div>
+        <div>Tout est fait dans ton navigateur.</div>
+      </div>
+    </header>
+
+    <div class="content">
+      <!-- Colonne gauche : YAML -->
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">
+              <span class="icon">Y</span>
+              Entrée YAML
+            </div>
+            <div class="card-subtitle">
+              Un document YAML complet (objets, listes, valeurs scalaires…)
+            </div>
+          </div>
+        </div>
+
+        <textarea id="yaml-input" placeholder="# Exemple simple
+users:
+  - name: Alice
+    email: alice@example.com
+    role: admin
+  - name: Bob
+    email: bob@example.com
+    role: user
+
+settings:
+  retries: 3
+  timeout: 10
+  flags:
+    - fast
+    - safe
+"></textarea>
+
+        <div class="helper">
+          <span>La librairie <code>js-yaml</code> se charge du parsing.</span>
+          <span>Les structures sont détectées automatiquement (tableaux d’objets, objets imbriqués, etc.).</span>
+        </div>
+      </section>
+
+      <!-- Colonne droite : options + actions -->
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">
+              <span class="icon">X</span>
+              Options d’export
+            </div>
+            <div class="card-subtitle">
+              Choisis comment mapper le YAML vers des onglets Excel.
+            </div>
+          </div>
+        </div>
+
+        <div class="options">
+          <div class="options-group">
+            <div class="options-label">Mode d’onglets</div>
+            <div class="mode-row">
+              <label class="radio-pill" data-mode="single" data-active="true">
+                <input type="radio" name="mode" value="single" checked />
+                <span>Un seul onglet</span>
+              </label>
+              <label class="radio-pill" data-mode="multi">
+                <input type="radio" name="mode" value="multi" />
+                <span>Plusieurs onglets (par clé racine si possible)</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="options-group">
+            <div class="options-label">Nom du fichier</div>
+            <div class="filename-row">
+              <input
+                id="filename"
+                type="text"
+                placeholder="export-yaml.xlsx"
+                autocomplete="off"
+              />
+              <small>.xlsx sera ajouté si tu l’oublies</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <div class="status" id="status"></div>
+          <button id="generate-btn" class="primary" type="button">
+            <span class="icon">⬇</span>
+            <span>Télécharger Excel</span>
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <footer class="footer">
+      <span>Heuristiques&nbsp;: tableaux d’objets → vraies tables, objets imbriqués → chemin / valeur.</span>
+      <span>Tu peux modifier cette page comme tu veux (tout est dans ce fichier&nbsp;: <code>index.html</code>).</span>
+    </footer>
+  </div>
+
+  <script>
+    // Helpers de typage
+    function isPlainObject(value) {
+      return Object.prototype.toString.call(value) === "[object Object]";
+    }
+
+    function isArrayOfObjects(value) {
+      return Array.isArray(value) && value.length > 0 && value.every(function (v) {
+        return isPlainObject(v);
+      });
+    }
+
+    // Aplatit un objet/array en paires { path, value }
+    function flattenObject(root, rootPath) {
+      var rows = [];
+
+      function walk(value, currentPath) {
+        if (isPlainObject(value)) {
+          Object.keys(value).forEach(function (key) {
+            var nextPath = currentPath ? currentPath + "." + key : key;
+            walk(value[key], nextPath);
+          });
+        } else if (Array.isArray(value)) {
+          value.forEach(function (item, index) {
+            var nextPath = currentPath + "[" + index + "]";
+            walk(item, nextPath);
+          });
+        } else {
+          rows.push({ path: currentPath || rootPath || "(racine)", value: value });
+        }
+      }
+
+      walk(root, rootPath || "");
+      return rows;
+    }
+
+    // Construit une seule feuille à partir du YAML
+    function buildSingleSheet(data) {
+      // 1) YAML = [ { ... }, { ... } ]
+      if (isArrayOfObjects(data)) {
+        return XLSX.utils.json_to_sheet(data);
+      }
+
+      // 2) YAML = { section1: [ { ... } ], section2: [ { ... } ], ... }
+      if (isPlainObject(data)) {
+        var merged = [];
+        Object.keys(data).forEach(function (key) {
+          var val = data[key];
+          if (isArrayOfObjects(val)) {
+            val.forEach(function (row) {
+              var copy = Object.assign({}, row);
+              copy.__section = key;
+              merged.push(copy);
+            });
+          }
+        });
+
+        if (merged.length > 0) {
+          // colonne __section en tête
+          merged = merged.map(function (row) {
+            var ordered = {};
+            ordered.__section = row.__section;
+            Object.keys(row).forEach(function (k) {
+              if (k !== "__section") ordered[k] = row[k];
+            });
+            return ordered;
+          });
+          return XLSX.utils.json_to_sheet(merged);
+        }
+      }
+
+      // 3) Fallback : aplatir tout en chemin / valeur
+      var flat = flattenObject(data);
+      var aoa = [["Chemin", "Valeur"]];
+      flat.forEach(function (row) {
+        aoa.push([row.path, row.value != null ? String(row.value) : ""]);
+      });
+      return XLSX.utils.aoa_to_sheet(aoa);
+    }
+
+    // Ajoute plusieurs feuilles à partir du YAML
+    function buildMultiSheets(data, workbook) {
+      // Si c'est déjà un tableau d'objets : une seule feuille
+      if (isArrayOfObjects(data)) {
+        var ws = XLSX.utils.json_to_sheet(data);
+        XLSX.utils.book_append_sheet(workbook, ws, "Feuille1");
+        return;
+      }
+
+      // Si ce n'est pas un objet, fallback sur une seule feuille aplatie
+      if (!isPlainObject(data)) {
+        var wsSingle = buildSingleSheet(data);
+        XLSX.utils.book_append_sheet(workbook, wsSingle, "Feuille1");
+        return;
+      }
+
+      var entries = Object.entries(data);
+      if (entries.length === 0) {
+        var emptyWs = XLSX.utils.aoa_to_sheet([["(vide)"]]);
+        XLSX.utils.book_append_sheet(workbook, emptyWs, "Feuille1");
+        return;
+      }
+
+      entries.forEach(function (pair, index) {
+        var key = pair[0];
+        var val = pair[1];
+        var ws;
+
+        if (isArrayOfObjects(val)) {
+          // Cas idéal : tableau d’objets → vraie table
+          ws = XLSX.utils.json_to_sheet(val);
+        } else if (Array.isArray(val)) {
+          // Tableau simple ou mixte → colonne Index + Valeur
+          var aoaList = [["Index", key]];
+          val.forEach(function (item, i) {
+            var cell;
+            if (isPlainObject(item) || Array.isArray(item)) {
+              cell = JSON.stringify(item);
+            } else {
+              cell = item != null ? String(item) : "";
+            }
+            aoaList.push([i, cell]);
+          });
+          ws = XLSX.utils.aoa_to_sheet(aoaList);
+        } else if (isPlainObject(val)) {
+          // Objet imbriqué → aplatir chemin / valeur
+          var flat = flattenObject(val, key);
+          var aoaObj = [["Chemin", "Valeur"]];
+          flat.forEach(function (row) {
+            aoaObj.push([row.path, row.value != null ? String(row.value) : ""]);
+          });
+          ws = XLSX.utils.aoa_to_sheet(aoaObj);
+        } else {
+          // Scalaire → une petite feuille 2 lignes
+          ws = XLSX.utils.aoa_to_sheet([[key], [val != null ? String(val) : ""]]);
+        }
+
+        var sheetName = String(key).slice(0, 31) || "Feuille" + (index + 1);
+        // Nettoyage des caractères interdits dans les noms d’onglets
+        sheetName = sheetName.replace(/[:\\/?*\[\]]/g, "_");
+
+        XLSX.utils.book_append_sheet(workbook, ws, sheetName);
+      });
+    }
+
+    // Gestion de l’UI
+    var yamlInput = document.getElementById("yaml-input");
+    var statusEl = document.getElementById("status");
+    var filenameInput = document.getElementById("filename");
+    var generateBtn = document.getElementById("generate-btn");
+
+    // Pilles radio visuelles
+    document.querySelectorAll(".radio-pill").forEach(function (pill) {
+      pill.addEventListener("click", function () {
+        document.querySelectorAll(".radio-pill").forEach(function (p) {
+          p.dataset.active = "false";
+        });
+        pill.dataset.active = "true";
+        var input = pill.querySelector("input[type=radio]");
+        if (input) input.checked = true;
+      });
+    });
+
+    function setStatus(text, type) {
+      statusEl.textContent = "";
+      statusEl.className = "status";
+      if (!text) return;
+
+      var dot = document.createElement("span");
+      dot.className = type === "error" ? "dot-error" : "dot-ok";
+
+      var strong = document.createElement("strong");
+      strong.textContent = text;
+
+      statusEl.appendChild(dot);
+      statusEl.appendChild(strong);
+
+      if (type === "error") {
+        statusEl.classList.add("status-error");
+      } else {
+        statusEl.classList.add("status-ok");
+      }
+    }
+
+    generateBtn.addEventListener("click", function () {
+      var yamlText = (yamlInput.value || "").trim();
+      if (!yamlText) {
+        setStatus("Colle du YAML avant d’exporter.", "error");
+        return;
+      }
+
+      var data;
+      try {
+        data = jsyaml.load(yamlText);
+      } catch (err) {
+        setStatus("Erreur YAML : " + err.message, "error");
+        return;
+      }
+
+      var modeInput = document.querySelector("input[name='mode']:checked");
+      var mode = modeInput ? modeInput.value : "single";
+
+      var wb = XLSX.utils.book_new();
+
+      try {
+        if (mode === "multi") {
+          buildMultiSheets(data, wb);
+        } else {
+          var ws = buildSingleSheet(data);
+          XLSX.utils.book_append_sheet(wb, ws, "Données");
+        }
+      } catch (err) {
+        console.error(err);
+        setStatus("Erreur pendant la génération des feuilles : " + err.message, "error");
+        return;
+      }
+
+      var filename = (filenameInput.value || "").trim();
+      if (!filename) {
+        filename = "export-yaml.xlsx";
+      } else if (!/\.xlsx$/i.test(filename)) {
+        filename += ".xlsx";
+      }
+
+      try {
+        XLSX.writeFile(wb, filename);
+        setStatus("Fichier généré : " + filename, "ok");
+      } catch (err) {
+        console.error(err);
+        setStatus("Impossible de déclencher le téléchargement : " + err.message, "error");
+      }
+    });
+  </script>
+</body>
+</html>
